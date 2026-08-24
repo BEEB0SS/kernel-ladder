@@ -1,0 +1,17 @@
+build/
+__pycache__/
+*.pyc
+*.o
+*.so
+*.ncu-rep
+*.nsys-rep
+*.sqlite
+torch_ext/build/
+torch_ext/*.egg-info/
+bench/results/*.jsonl
+bench/results/env_*.txt
+!bench/results/sgemm.jsonl
+!bench/results/attention.jsonl
+!bench/results/sweep_tiles.jsonl
+!bench/results/sweep_attn.jsonl
+.vscode
