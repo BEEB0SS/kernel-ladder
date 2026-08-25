@@ -8,21 +8,11 @@ from typing import Callable, Dict, List, Optional
 
 import torch
 
+import kernel_ladder_C  # noqa: F401  (its TORCH_LIBRARY side effect registers torch.ops.kernel_ladder)
+
 
 def load_extension(verbose: bool = True) -> str:
-    """Import the compiled extension (its TORCH_LIBRARY side effect registers torch.ops.kernel_ladder) and return the rung name."""
-    try:
-        import kernel_ladder_C  # noqa: F401  (imported for its side effects)
-    except ImportError as exc:
-        sys.exit(
-            f"error: could not import the compiled extension ({exc}).\n"
-            f"       Build it first:\n"
-            f"           cd torch_ext && python setup.py build_ext --inplace\n"
-            f"       and run from a directory where the built .so is importable.\n"
-            f"       If the build itself failed, the usual causes are a PyTorch\n"
-            f"       build without sm_121 support, an ABI mismatch with a stale\n"
-            f"       build/ directory, or a missing ninja — see the root README."
-        )
+    """Confirm the compiled extension registered its ops and return the bound rung name."""
     if not hasattr(torch.ops, "kernel_ladder"):
         sys.exit("error: the extension imported but registered no ops. That means "
                  "the TORCH_LIBRARY block in binding.cu did not run — usually a "

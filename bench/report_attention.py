@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import report as R  # palette, style, loaders, GB10 constants
+import numpy as np
+
+import report as R  # sibling module: palette, style, loaders, GB10 constants
 
 # Keep ATTN_RUNGS in sync with src/attention/registry.cu.
 ATTN_RUNGS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict([
@@ -131,8 +133,6 @@ def print_table(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
 def chart_ladder(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
                  S: int, outdir: str, synthetic: bool) -> Optional[str]:
     plt = R._style()
-    if plt is None:
-        return None
     fig, ax = plt.subplots(figsize=(9, 5))
     names, vals, colors, hatches = [], [], [], []
     for causal in (False, True):
@@ -157,7 +157,7 @@ def chart_ladder(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
     ax.set_title(f"Attention ladder — {B}x{H}x{S}x{D} "
                  f"(hatched = bf16: fewer bits per number, not free speed)")
     if synthetic:
-        R._mark_synthetic(fig, [ax])
+        R._mark_synthetic(fig, rows)
     path = os.path.join(outdir, "attention_ladder.png")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -170,8 +170,6 @@ def chart_scurve(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
                  ) -> Optional[str]:
     """GFLOP/s vs S against both roofs; predicted crossovers at S~514 fp32, S~1843 bf16."""
     plt = R._style()
-    if plt is None:
-        return None
     fig, ax = plt.subplots(figsize=(9, 5.5))
 
     for name, meta in ATTN_RUNGS.items():
@@ -206,7 +204,7 @@ def chart_scurve(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
     ax.set_title(f"Attention throughput vs S — B={B} H={H} D={D} (non-causal)")
     ax.legend(fontsize=8)
     if synthetic:
-        R._mark_synthetic(fig, [ax])
+        R._mark_synthetic(fig, rows)
     path = os.path.join(outdir, "attention_scurve.png")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -218,9 +216,6 @@ def chart_roofline(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
                    S_list: Sequence[int], outdir: str, synthetic: bool
                    ) -> Optional[str]:
     plt = R._style()
-    if plt is None:
-        return None
-    import numpy as np
     fig, ax = plt.subplots(figsize=(9, 5.5))
 
     ai_grid = np.logspace(-1, 3.6, 200)
@@ -248,7 +243,7 @@ def chart_roofline(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
                  f"{min(S_list)}..{max(S_list)}")
     ax.legend(fontsize=8)
     if synthetic:
-        R._mark_synthetic(fig, [ax])
+        R._mark_synthetic(fig, rows)
     path = os.path.join(outdir, "attention_roofline.png")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -260,8 +255,6 @@ def chart_latency(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
                   S_list: Sequence[int], outdir: str, synthetic: bool
                   ) -> Optional[str]:
     plt = R._style()
-    if plt is None:
-        return None
     fig, ax = plt.subplots(figsize=(9, 5))
     for name, meta in ATTN_RUNGS.items():
         xs, ys = [], []
@@ -280,7 +273,7 @@ def chart_latency(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
     ax.set_title(f"Attention latency vs S — B={B} H={H} D={D} (non-causal)")
     ax.legend(fontsize=8)
     if synthetic:
-        R._mark_synthetic(fig, [ax])
+        R._mark_synthetic(fig, rows)
     path = os.path.join(outdir, "attention_latency.png")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -289,7 +282,6 @@ def chart_latency(rows: Sequence[Dict[str, Any]], B: int, H: int, D: int,
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    import argparse
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("jsonl", nargs="?", default=DEFAULT_JSONL)
     ap.add_argument("--outdir", default=R.DEFAULT_OUTDIR)

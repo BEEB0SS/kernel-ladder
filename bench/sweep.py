@@ -20,6 +20,13 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Patch, Rectangle
+
+matplotlib.use("Agg")   # headless PNG output; no display needed
+
 DEFAULT_JSONL = "bench/results/sweep_tiles.jsonl"
 DEFAULT_OUTDIR = "bench/results"
 
@@ -239,9 +246,6 @@ def print_summary(cfgs: Dict[str, Dict[str, Any]], metric: str, top: int,
 
 
 def _style():
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     plt.rcParams.update({
         "figure.facecolor": "white",
         "axes.facecolor": "white",
@@ -262,8 +266,6 @@ def chart_heatmap(cfgs: Dict[str, Dict[str, Any]], row_params: List[str],
                   col_params: List[str], metric: str, outdir: str,
                   synthetic: bool) -> Optional[str]:
     plt = _style()
-    import numpy as np
-    from matplotlib.patches import Patch
 
     recs = list(cfgs.values())
     row_keys = sorted({axis_key(r, row_params) for r in recs},
@@ -334,7 +336,6 @@ def chart_heatmap(cfgs: Dict[str, Dict[str, Any]], row_params: List[str],
                             color="#8A8A8A", fontweight="bold")
 
     if best_ij is not None:
-        from matplotlib.patches import Rectangle
         ax.add_patch(Rectangle((best_ij[1] - 0.5, best_ij[0] - 0.5), 1, 1,
                                fill=False, edgecolor="#D55E00", linewidth=3.0))
 
@@ -459,18 +460,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if not args.no_charts:
         os.makedirs(args.outdir, exist_ok=True)
-        try:
-            written = [chart_heatmap(cfgs, row_params, col_params, args.metric,
-                                     args.outdir, synthetic),
-                       chart_marginals(cfgs, args.metric, args.outdir, synthetic)]
-            written = [w for w in written if w]
-            if written:
-                print("charts written:")
-                for w in written:
-                    print(f"  {w}")
-                print()
-        except ImportError:
-            print("note: matplotlib not installed, skipping charts", file=sys.stderr)
+        written = [chart_heatmap(cfgs, row_params, col_params, args.metric,
+                                 args.outdir, synthetic),
+                   chart_marginals(cfgs, args.metric, args.outdir, synthetic)]
+        written = [w for w in written if w]
+        if written:
+            print("charts written:")
+            for w in written:
+                print(f"  {w}")
+            print()
     return 0
 
 

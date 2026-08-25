@@ -4,17 +4,9 @@
 import os
 import sys
 
+import torch
 from setuptools import setup
-
-try:
-    import torch
-    from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-except ImportError:
-    sys.exit(
-        "error: PyTorch is not importable, so its build helpers are not either.\n"
-        "       A PyTorch build with sm_121 support is required on DGX Spark\n"
-        "       (see the root README's requirements section)."
-    )
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -71,7 +63,7 @@ setup(
     description="SGEMM kernels from kernel-ladder, exposed as PyTorch custom ops",
     ext_modules=[
         CUDAExtension(
-            # Module name must match binding.cu's PYBIND11_MODULE and the __init__.py import.
+            # Module name must match binding.cu's PYBIND11_MODULE and bench_util's import.
             name="kernel_ladder_C",
             sources=[os.path.join(HERE, "binding.cu")]
                    + [os.path.join(SRC, "sgemm", s) for s in kernel_srcs],

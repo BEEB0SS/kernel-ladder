@@ -25,6 +25,15 @@ import sys
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+from matplotlib.ticker import MaxNLocator
+
+matplotlib.use("Agg")   # headless PNG output; no display needed
+
 # Hardware constants — keep in sync with src/common/gb10.hpp (duplicated on purpose).
 # Measured numbers where possible; roofline uses measured DRAM bandwidth, not spec.
 DRAM_BW_MEASURED_GBS = 231.0     # saturating-read kernel, 8 GiB buffer
@@ -493,9 +502,6 @@ def print_history(rows_all: Sequence[Dict[str, Any]], size: str,
 
 
 def _style():
-    import matplotlib
-    matplotlib.use("Agg")   # no display on a headless Spark or a build box
-    import matplotlib.pyplot as plt
     plt.rcParams.update({
         "figure.facecolor": "white",
         "axes.facecolor": "white",
@@ -626,7 +632,6 @@ def chart_ladder(rows: List[Row], size: str, outdir: str) -> Optional[str]:
 def chart_roofline(rows: List[Row], size: str, outdir: str) -> Optional[str]:
     """Log-log roofline: achieved GFLOP/s against the DRAM and compute ceilings."""
     plt = _style()
-    import numpy as np
 
     pts = [r for r in rows if r.status == "ok" and r.rec is not None]
     if not pts:
@@ -755,8 +760,6 @@ def chart_roofline(rows: List[Row], size: str, outdir: str) -> Optional[str]:
 def chart_latency(rows: List[Row], size: str, outdir: str) -> Optional[str]:
     """min/p50/p90/p99 glyph per kernel — not a boxplot; the harness logs no quartiles."""
     plt = _style()
-    from matplotlib.patches import Rectangle
-    from matplotlib.lines import Line2D
 
     pts = [r for r in rows if r.status == "ok" and r.rec is not None]
     if not pts:
@@ -858,7 +861,6 @@ def chart_history(history: List[Tuple[str, List[Dict[str, Any]]]], size: str,
     ax.grid(True, linewidth=0.5, alpha=0.7)
     ax.set_axisbelow(True)
     ax.legend(fontsize=8.5, ncol=2)
-    from matplotlib.ticker import MaxNLocator
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
     path = os.path.join(outdir, "history.png")
@@ -936,19 +938,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             history = print_history(rows_all, size, only)
 
         if not args.no_charts:
-            try:
-                for fn in (chart_ladder, chart_roofline, chart_latency):
-                    p = fn(rows, size, args.outdir)
-                    if p:
-                        written.append(p)
-                if history:
-                    p = chart_history(history, size, args.outdir)
-                    if p:
-                        written.append(p)
-            except ImportError:
-                # Charts are optional; a missing matplotlib must never cost the table.
-                print("note: matplotlib not installed, skipping charts "
-                      "(pip install matplotlib)", file=sys.stderr)
+            for fn in (chart_ladder, chart_roofline, chart_latency):
+                p = fn(rows, size, args.outdir)
+                if p:
+                    written.append(p)
+            if history:
+                p = chart_history(history, size, args.outdir)
+                if p:
+                    written.append(p)
 
     if written:
         print("charts written:")
