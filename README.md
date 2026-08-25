@@ -5,9 +5,9 @@ attention — taken from a naive implementation to past fp32 cuBLAS on an NVIDIA
 DGX Spark (GB10 Grace Blackwell, sm_121). I structured the work as a ladder:
 each kernel changes exactly one thing relative to the previous one, every claim
 is gated by a CPU oracle before it is timed, and no rung counts as finished
-until Nsight Compute can name the metric that changed. The deliverable is not
-just the fastest kernel — it is the measured record of what each optimization
-bought, what it cost, and why.
+until Nsight Compute can name the metric that changed (those metrics are
+tabulated per step below). The deliverable is not just the fastest kernel — it
+is the measured record of what each optimization bought, what it cost, and why.
 
 Headline results, all p50 over 100 iterations on an otherwise-idle GPU:
 
@@ -20,6 +20,35 @@ Headline results, all p50 over 100 iterations on an otherwise-idle GPU:
   the flash kernel runs the same problem in 4.9 s/iteration.
 
 ---
+
+## Method
+
+The order of work mattered as much as the kernels, so here it is explicitly:
+
+1. **The CPU reference came first.** Before writing any CUDA I wrote
+   `sgemm_cpu` and `attention_cpu` — deliberately simple, accumulating in
+   double so they out-precision everything they judge — and put them under
+   host-only unit tests (`make test-host`, no GPU needed). Every GPU result in
+   this repository is checked against them before it is timed.
+2. **Then the harness.** 25 warmup iterations, 100 timed iterations, each
+   bracketed by CUDA events; p50/p90/p99 and the coefficient of variation
+   reported; SM clock sampled before and after every measurement; every run
+   appended to a JSONL log. Nothing in this project was ever timed single-shot.
+3. **Then the naive kernel, for correctness.** Its job was not speed: it was
+   the first GPU code checked against the oracle, and it is the floor every
+   later kernel is measured against.
+4. **Then cuBLAS, as the number to beat** — strict fp32 and TF32, both run in
+   every session, and profiled with Nsight Systems so I knew *which* kernels
+   I was competing with before claiming anything against them.
+5. **Then one change per rung.** Profile with Nsight Compute, name the
+   bottleneck, change exactly one thing, re-verify against the oracle,
+   re-measure, log the metric that moved. Memory coalescing, then shared-memory
+   tiling, then register tiling, then vectorization, then tensor cores — in
+   that order, because each step's profile is what motivated the next.
+6. **Finally, a PyTorch custom op**, to test whether a microbenchmark speedup
+   survives inside a real model. Against the fp32 baseline it does (1.10×
+   end-to-end in a 4-layer MLP); against PyTorch's TF32 defaults it does not,
+   and the benchmark prints both.
 
 ## Results: the SGEMM ladder
 
@@ -77,6 +106,30 @@ skipped, not computed and discarded.
 ![Attention ladder](bench/results/attention_ladder.png)
 
 ![Attention throughput vs S](bench/results/attention_scurve.png)
+
+## What the profiler named at each step
+
+A rung was not finished when it was faster; it was finished when Nsight
+Compute could name what changed. These are those metrics, measured at 2048³
+(SGEMM) and 2×4×1024×64 (attention) unless noted, on an exclusive GPU.
+
+| SGEMM step | Metric | Before → after | What it says |
+|---|---|---|---|
+| coalesced | `l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio` | 16.5 → 2.5 | the B reads went from a 32-sector scatter to 4 contiguous sectors; total load sectors 8.86e9 → 1.34e9 |
+| smem tiled | `lts__t_sectors_op_read_lookup_miss.sum` (≈DRAM reads) | 5.84M → 3.11M | only 1.9×, not the textbook 10×: a 16 MB matrix fits GB10's 24 MB L2, which was already absorbing the re-reads. The real win was LSU relief — SoL 70% with the FMA pipe at 8% |
+| 1D blocktile | `smsp__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active` | 8.0% → 20.4% | more arithmetic per issued load; 49 registers, zero spills |
+| 2D blocktile | `launch__registers_per_thread` / `sm__warps_active` | 128 regs → 31% occupancy | latency hiding collapsed, so the rung tied its predecessor — the sweep's BK 8→16 restored it: 5,178 → 10,049 GFLOP/s |
+| vectorized | `sm__throughput.avg.pct_of_peak_sustained_elapsed` + SASS | 21.3% → 37.0% | pure instruction count: 18× `LDG.E.128`, 16× `STG.E.128`, zero scalar global accesses. Bank conflicts were *unchanged* (33.6M, on the B-tile reads) — the transpose's real win is the `float4` A-tile reads, not the conflicts the folklore predicts |
+| tensor cores | `sm__inst_executed_pipe_tensor.sum` | 4,194,304 | exactly 2048³/(16·8·16): every MAC went through the tensor pipe. Route A (WMMA) → Route B (raw `mma.sync`+`ldmatrix`) → +`cp.async`: 16.1 → 19.5 → 20.5 TFLOP/s at 4096³ |
+
+| Attention step | Metric | Before → after | What it says |
+|---|---|---|---|
+| fused softmax | `lts__t_sectors_op_write.sum` / `lts__t_sectors_op_read.sum` | writes 19.2M → 1.12M; reads 57.9M → 289.7M | the fusion delivered the 17× write cut it promised and lost anyway: 5× the read traffic, because one block per query row re-streams all of K. Fusion without locality — the case for tiling |
+| flash (online softmax) | wall time, causal vs full at S=4096 | 75.9 → 39.0 ms | fully-masked K/V tiles are skipped, not computed and discarded; the S×S matrix no longer exists (79 registers, zero spills) |
+| flash + tensor cores | `sm__inst_executed_pipe_tensor.sum` | 2,097,152 | exactly FLOPs/(2·16·8·16). The register-permutation path is bit-identical to the shared-memory round trip it replaced; the `cp.async` pipeline added +64% |
+
+GB10 exposes no `dram__*` or hmma-cycle counters, which is why the L2 (`lts__`)
+and tensor-instruction counters stand in for them — see the hardware notes.
 
 ## The memory wall, demonstrated
 
